@@ -12,16 +12,19 @@ namespace TestovoeDeepAnalysis.Services;
 public class ElementsService
 {
     private readonly NpgsqlConnection _connection;
+
     private static readonly Regex EmailRegex = new(
         @"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
         RegexOptions.Compiled);
-    
+
     public ElementsService(NpgsqlConnection connection)
     {
         _connection = connection;
     }
 
-    public async Task<ElementsResponse> ProcessAsync(ElementsRequest request, CancellationToken cancellationToken)
+    public async Task<(int StatusCode, ElementsResponse Response)> ProcessAsync(
+        ElementsRequest request,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -34,18 +37,22 @@ public class ElementsService
                 request.EncryptedTextBytesB64,
                 request.KeyBytesB64);
 
-            var document = await ParseHtmlAsync(page, cancellationToken);
+            var document = await ParseHtmlAsync(
+                page,
+                cancellationToken);
 
             var elements = document.QuerySelectorAll(request.Selector);
 
-            var (elementsAttrList, htmlElements) = ExtractElements(elements, request);
+            var (elementsAttrList, htmlElements) =
+                ExtractElements(elements, request);
 
             await InsertElementsAsync(cancellationToken, elementsAttrList, htmlElements);
 
-            return new ElementsResponse
+            var response = new ElementsResponse
             {
                 IsError = 0,
-                ErrorCode = 0,
+                ErrorCode = string.Empty,
+                ErrorMessage = string.Empty,
                 Url = url,
                 ElementsCount = elements.Length,
                 EmailsCount = emailsList.Count,
@@ -53,33 +60,50 @@ public class ElementsService
                 EmailsList = emailsList,
                 DecryptedPlainText = decryptedPlainText
             };
+
+            return (200, response);
         }
         catch (FormatException ex)
         {
-            return CreateErrorResponse(400, ex.Message);
+            return CreateErrorResponse(
+                400,
+                "INVALID_BASE64",
+                ex.Message);
         }
         catch (CryptographicException ex)
         {
-            return CreateErrorResponse(400, ex.Message);
+            return CreateErrorResponse(
+                400,
+                "DECRYPTION_ERROR",
+                ex.Message);
         }
-        catch (DomException ex)
+        catch (DomException)
         {
-            return CreateErrorResponse(400, "Invalid CSS selector.");
+            return CreateErrorResponse(
+                400,
+                "INVALID_CSS_SELECTOR",
+                "Invalid CSS selector.");
         }
         catch (NpgsqlException)
         {
-            return CreateErrorResponse(500, "Database error.");
+            return CreateErrorResponse(
+                500,
+                "DATABASE_ERROR",
+                "Database error.");
         }
         catch (OperationCanceledException)
         {
             throw;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            return CreateErrorResponse(500, "Internal server error.");
+            return CreateErrorResponse(
+                500,
+                "INTERNAL_ERROR",
+                ex.Message);
         }
-
     }
+
     
     private List<string> ExtractEmails(string page)
     {
@@ -95,14 +119,16 @@ public class ElementsService
         try
         {
             var bytes = Convert.FromBase64String(base64);
+
             return Encoding.UTF8.GetString(bytes);
         }
         catch (FormatException)
         {
-            throw new FormatException($"Invalid Base64 data in field '{fieldName}'.");
+            throw new FormatException(
+                $"Invalid Base64 data in field '{fieldName}'.");
         }
     }
-    
+
     
     private byte[] DecodeBase64Bytes(string base64, string fieldName)
     {
@@ -112,25 +138,28 @@ public class ElementsService
         }
         catch (FormatException)
         {
-            throw new FormatException($"Invalid Base64 data in field '{fieldName}'.");
+            throw new FormatException(
+                $"Invalid Base64 data in field '{fieldName}'.");
         }
     }
-    
+
     
     private string DecryptText(string encryptedTextBytesB64, string keyBytesB64)
     {
         var encryptedBytes = DecodeBase64Bytes(encryptedTextBytesB64, "encrypted_text_bytes_b64");
+
         var keyBytes = DecodeBase64Bytes(keyBytesB64, "key_bytes_b64");
 
         if (keyBytes.Length != 32)
         {
             throw new CryptographicException("AES-256 key must contain 32 bytes.");
         }
+
         if (encryptedBytes.Length % 16 != 0)
         {
             throw new CryptographicException("Encrypted data length must be a multiple of 16 bytes.");
         }
-        
+
         using var aes = Aes.Create();
 
         aes.Key = keyBytes;
@@ -148,7 +177,9 @@ public class ElementsService
     }
 
     
-    private async Task<IDocument> ParseHtmlAsync(string page, CancellationToken cancellationToken)
+    private async Task<IDocument> ParseHtmlAsync(
+        string page,
+        CancellationToken cancellationToken)
     {
         var config = Configuration.Default;
         var context = BrowsingContext.New(config);
@@ -160,15 +191,16 @@ public class ElementsService
 
     
     private (List<string> ElementsAttrList, List<string> HtmlElements) ExtractElements(
-        IHtmlCollection<IElement> elements,
-        ElementsRequest request)
+            IHtmlCollection<IElement> elements,
+            ElementsRequest request)
     {
         var elementsAttrList = new List<string>();
         var htmlElements = new List<string>();
 
         foreach (var element in elements)
         {
-            var attributeValue = element.GetAttribute(request.Attribute!);
+            var attributeValue =
+                element.GetAttribute(request.Attribute!);
 
             if (attributeValue is null)
             {
@@ -181,8 +213,8 @@ public class ElementsService
 
         return (elementsAttrList, htmlElements);
     }
-    
 
+    
     private async Task InsertElementsAsync(
         CancellationToken cancellationToken,
         List<string> elementsAttrList,
@@ -209,14 +241,20 @@ public class ElementsService
             await _connection.ExecuteAsync(command);
         }
     }
+
     
-    private ElementsResponse CreateErrorResponse(int errorCode, string errorMessage)
+    private (int StatusCode, ElementsResponse Response) CreateErrorResponse(
+            int statusCode,
+            string errorCode,
+            string errorMessage)
     {
-        return new ElementsResponse
+        var response = new ElementsResponse
         {
             IsError = 1,
             ErrorCode = errorCode,
             ErrorMessage = errorMessage
         };
+
+        return (statusCode, response);
     }
 }

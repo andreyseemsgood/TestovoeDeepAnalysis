@@ -19,13 +19,9 @@ public class ElementsController : ControllerBase
     }
 
     [HttpPost("process")]
-    public async Task<IActionResult> Process(
-        ElementsRequest request,
-        CancellationToken cancellationToken)
+    public async Task<IActionResult> Process(ElementsRequest request, CancellationToken cancellationToken)
     {
-        var validationResult = await _validator.ValidateAsync(
-            request,
-            cancellationToken);
+        var validationResult = await _validator.ValidateAsync(request, cancellationToken);
 
         if (!validationResult.IsValid)
         {
@@ -36,18 +32,15 @@ public class ElementsController : ControllerBase
             return BadRequest(new ElementsResponse
             {
                 IsError = 1,
-                ErrorCode = 400,
+                ErrorCode = "VALIDATION_ERROR",
                 ErrorMessage = string.Join(" ", errors)
             });
         }
 
-        var response = await _elementsService.ProcessAsync(
+        var (statusCode, response) = await _elementsService.ProcessAsync(
             request,
             cancellationToken);
 
-        return StatusCode(
-            response.IsError == 1 ? response.ErrorCode : 200,
-            response);
+        return StatusCode(statusCode, response);
     }
-    
 }
