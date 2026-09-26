@@ -17,6 +17,8 @@
       dockerfile: TestovoeDeepAnalysis/Dockerfile
     ports:
       - "8090:8080"
+    volumes:
+      - ./TestovoeDeepAnalysis:/src/TestovoeDeepAnalysis
     depends_on:
       - postgres
 
