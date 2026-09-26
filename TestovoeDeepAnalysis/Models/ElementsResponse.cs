@@ -8,7 +8,7 @@ public class ElementsResponse
     public int IsError { get; set; }
 
     [JsonPropertyName("error_code")]
-    public int ErrorCode { get; set; }
+    public string ErrorCode { get; set; } = string.Empty;
 
     [JsonPropertyName("error_message")]
     public string ErrorMessage { get; set; } = string.Empty;
