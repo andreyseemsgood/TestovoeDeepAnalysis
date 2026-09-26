@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using FluentValidation;
+using Microsoft.AspNetCore.Mvc;
 using TestovoeDeepAnalysis.Models;
 using TestovoeDeepAnalysis.Services;
 

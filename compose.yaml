@@ -9,7 +9,7 @@
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
-      - ./TestovoeDeepAnalysis/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
 
   api:
     build:
