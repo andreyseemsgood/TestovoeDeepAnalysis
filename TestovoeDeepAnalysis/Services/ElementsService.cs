@@ -23,45 +23,64 @@ public class ElementsService
 
     public async Task<ElementsResponse> ProcessAsync(ElementsRequest request, CancellationToken cancellationToken)
     {
-        var url = DecodeBase64String(request.UrlB64);
-        var page = DecodeBase64String(request.PageB64);
-
-        var emailsList = ExtractEmails(page);
-
-        var decryptedPlainText = DecryptText(
-            request.EncryptedTextBytesB64,
-            request.KeyBytesB64);
-
-        var document = await ParseHtmlAsync(page, cancellationToken);
-
-        var elements = document.QuerySelectorAll(request.Selector);
-
-        var (elementsAttrList, htmlElements) = ExtractElements(elements, request);
-
-        await InsertElementsAsync(
-            cancellationToken,
-            elementsAttrList,
-            htmlElements);
-
-        return new ElementsResponse
+        try
         {
-            IsError = 0,
-            ErrorCode = 0,
-            Url = url,
-            ElementsCount = elements.Length,
-            EmailsCount = emailsList.Count,
-            ElementsAttrList = elementsAttrList,
-            EmailsList = emailsList,
-            DecryptedPlainText = decryptedPlainText
-        };
-    }
+            var url = DecodeBase64String(request.UrlB64, "url_b64");
+            var page = DecodeBase64String(request.PageB64, "page_b64");
 
-    private string DecodeBase64String(string base64)
-    {
-        var bytes = Convert.FromBase64String(base64);
-        return Encoding.UTF8.GetString(bytes);
-    }
+            var emailsList = ExtractEmails(page);
 
+            var decryptedPlainText = DecryptText(
+                request.EncryptedTextBytesB64,
+                request.KeyBytesB64);
+
+            var document = await ParseHtmlAsync(page, cancellationToken);
+
+            var elements = document.QuerySelectorAll(request.Selector);
+
+            var (elementsAttrList, htmlElements) = ExtractElements(elements, request);
+
+            await InsertElementsAsync(cancellationToken, elementsAttrList, htmlElements);
+
+            return new ElementsResponse
+            {
+                IsError = 0,
+                ErrorCode = 0,
+                Url = url,
+                ElementsCount = elements.Length,
+                EmailsCount = emailsList.Count,
+                ElementsAttrList = elementsAttrList,
+                EmailsList = emailsList,
+                DecryptedPlainText = decryptedPlainText
+            };
+        }
+        catch (FormatException ex)
+        {
+            return CreateErrorResponse(400, ex.Message);
+        }
+        catch (CryptographicException ex)
+        {
+            return CreateErrorResponse(400, ex.Message);
+        }
+        catch (DomException ex)
+        {
+            return CreateErrorResponse(400, "Invalid CSS selector.");
+        }
+        catch (NpgsqlException)
+        {
+            return CreateErrorResponse(500, "Database error.");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return CreateErrorResponse(500, "Internal server error.");
+        }
+
+    }
+    
     private List<string> ExtractEmails(string page)
     {
         return EmailRegex
@@ -70,11 +89,48 @@ public class ElementsService
             .ToList();
     }
 
+    
+    private string DecodeBase64String(string base64, string fieldName)
+    {
+        try
+        {
+            var bytes = Convert.FromBase64String(base64);
+            return Encoding.UTF8.GetString(bytes);
+        }
+        catch (FormatException)
+        {
+            throw new FormatException($"Invalid Base64 data in field '{fieldName}'.");
+        }
+    }
+    
+    
+    private byte[] DecodeBase64Bytes(string base64, string fieldName)
+    {
+        try
+        {
+            return Convert.FromBase64String(base64);
+        }
+        catch (FormatException)
+        {
+            throw new FormatException($"Invalid Base64 data in field '{fieldName}'.");
+        }
+    }
+    
+    
     private string DecryptText(string encryptedTextBytesB64, string keyBytesB64)
     {
-        var encryptedBytes = Convert.FromBase64String(encryptedTextBytesB64);
-        var keyBytes = Convert.FromBase64String(keyBytesB64);
+        var encryptedBytes = DecodeBase64Bytes(encryptedTextBytesB64, "encrypted_text_bytes_b64");
+        var keyBytes = DecodeBase64Bytes(keyBytesB64, "key_bytes_b64");
 
+        if (keyBytes.Length != 32)
+        {
+            throw new CryptographicException("AES-256 key must contain 32 bytes.");
+        }
+        if (encryptedBytes.Length % 16 != 0)
+        {
+            throw new CryptographicException("Encrypted data length must be a multiple of 16 bytes.");
+        }
+        
         using var aes = Aes.Create();
 
         aes.Key = keyBytes;
@@ -91,6 +147,7 @@ public class ElementsService
         return Encoding.UTF8.GetString(decryptedBytes);
     }
 
+    
     private async Task<IDocument> ParseHtmlAsync(string page, CancellationToken cancellationToken)
     {
         var config = Configuration.Default;
@@ -101,6 +158,7 @@ public class ElementsService
             cancellationToken);
     }
 
+    
     private (List<string> ElementsAttrList, List<string> HtmlElements) ExtractElements(
         IHtmlCollection<IElement> elements,
         ElementsRequest request)
@@ -150,5 +208,15 @@ public class ElementsService
 
             await _connection.ExecuteAsync(command);
         }
+    }
+    
+    private ElementsResponse CreateErrorResponse(int errorCode, string errorMessage)
+    {
+        return new ElementsResponse
+        {
+            IsError = 1,
+            ErrorCode = errorCode,
+            ErrorMessage = errorMessage
+        };
     }
 }
