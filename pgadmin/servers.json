@@ -1,0 +1,16 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Deep Analysis PostgreSQL",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "deep_analysis",
+      "Username": "test_user",
+      "SSLMode": "prefer",
+      "ConnectionParameters": {
+        "passfile": "/var/lib/pgadmin/.pgpass"
+      }
+    }
+  }
+}
